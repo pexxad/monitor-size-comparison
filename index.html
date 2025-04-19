@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>モニタサイズ比較ツール</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+</head>
+
+<body class="bg-white p-4">
+  <h1 class="text-2xl font-bold mb-4">モニタサイズ比較ツール</h1>
+  <div class="mb-6 flex flex-wrap gap-3">
+    <button id="add-monitor" class="flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold rounded-lg shadow-lg hover:from-blue-600 hover:to-indigo-700 transition duration-200">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+      </svg>
+      モニタ追加
+    </button>
+    <button id="reset-btn" class="flex items-center px-6 py-3 bg-gradient-to-r from-red-500 to-pink-500 text-white font-bold rounded-lg shadow-lg hover:from-red-600 hover:to-pink-600 transition duration-200">
+      <span class="mr-2">↻</span>
+      初期化
+    </button>
+  </div>
+  <div id="monitors" class="flex flex-wrap gap-4 mb-4"></div>
+  <div id="visualization" class="w-full mb-4 bg-white border border-gray-300 rounded shadow-lg p-4 overflow-auto">
+    <!-- SVG visualization will be rendered here -->
+  </div>
+
+  <script>
+    const ratioOptions = ["16:9", "16:10", "21:9", "32:9", "4:3"];
+    const resolutionOptions = {
+      "16:9": ["1920x1080", "2560x1440", "3840x2160", "5120x2880", "7680x4320"],
+      "16:10": ["1280x800", "1440x900", "1680x1050", "1920x1200", "2560x1600", "3840x2400"],
+      "4:3": ["1024x768", "1280x960", "1600x1200", "2048x1536"],
+      "21:9": ["2560x1080", "3440x1440", "3840x1600", "5120x2160"],
+      "32:9": ["3840x1080", "5120x1440", "7680x2160"]
+    };
+    const monitorColors = ['red', 'blue', 'green', 'orange', 'purple', 'teal'];
+    const defaultPresets = [
+      { size: 24, ratio: "16:9", resolutionWidth: 1920, resolutionHeight: 1080 },
+      { size: 27, ratio: "16:9", resolutionWidth: 2560, resolutionHeight: 1440 },
+      { size: 34, ratio: "21:9", resolutionWidth: 3440, resolutionHeight: 1440 },
+      { size: 49, ratio: "32:9", resolutionWidth: 5120, resolutionHeight: 1440 },
+      { size: 30, ratio: "16:10", resolutionWidth: 2560, resolutionHeight: 1600 },
+      { size: 17, ratio: "4:3", resolutionWidth: 1600, resolutionHeight: 1200 }
+    ];
+    function defaultMonitor() { return { size: 24, ratio: "16:9", resolutionWidth: 1920, resolutionHeight: 1080 }; }
+    let monitors = [];
+    // gcd for ratio calculation
+    function gcd(a, b) { return b ? gcd(b, a % b) : a; }
+    // parse compact URL param 'monitors', format: size_ratio_resolution[,...]
+    function parseQuery() {
+      const params = new URLSearchParams(location.search);
+      if (params.has("monitors")) {
+        try {
+          const arr = params.get("monitors").split(',').map(item => {
+            const [sz, ratio, res] = item.split('_');
+            const size = parseFloat(sz) || 0;
+            const [w, h] = res.split('x').map(Number);
+            return { size, ratio, resolutionWidth: w, resolutionHeight: h };
+          });
+          if (arr.length) { monitors = arr; return; }
+        } catch { }
+      }
+      // fallback defaults
+      monitors = [
+        { size: 24, ratio: "16:9", resolutionWidth: 1920, resolutionHeight: 1080 },
+        { size: 34, ratio: "21:9", resolutionWidth: 3440, resolutionHeight: 1440 }
+      ];
+    }
+    // update URL with compact 'monitors' param
+    function updateQuery() {
+      const str = monitors.map(m => `${m.size}_${m.ratio}_${m.resolutionWidth}x${m.resolutionHeight}`).join(',');
+      history.replaceState(null, '', `?monitors=${encodeURIComponent(str)}`);
+    }
+    function initSortable() {
+      Sortable.create(document.getElementById('monitors'), {
+        handle: '.handle', animation: 150,
+        onEnd(e) { const [m] = monitors.splice(e.oldIndex, 1); monitors.splice(e.newIndex, 0, m); render(); }
+      });
+    }
+    function renderMonitors() {
+      const c = document.getElementById('monitors');
+      let html = monitors.map((m, i) => {
+        const resList = resolutionOptions[m.ratio] || [];
+        const color = monitorColors[i % monitorColors.length];
+        return `<div class="monitor-card w-100 flex-shrink-0 flex items-start p-4 mb-2 bg-white border border-gray-300 rounded shadow-lg border-l-4" style="border-color:${color}" data-index="${i}">` +
+          `<span class="handle cursor-move mr-4 mt-2">☰</span><div class="flex flex-col space-y-2 flex-1">` +
+          `<label><span class="w-3 h-3 inline-block mr-1 rounded-full" style="background-color:${color}"></span>モニタ${i + 1}</label>` +
+          `<div><label>サイズ (インチ): <input type="number" min="1" step="0.1" value="${m.size}" data-type="size" class="size-input border p-1 rounded w-20"></label></div>` +
+          `<div><label>縦横比: <select data-type="ratio" class="ratio-select border p-1 rounded w-20">` +
+          ratioOptions.map(r => `<option value="${r}" ${m.ratio === r ? 'selected' : ''}>${r}</option>`).join('') +
+          `</select></label></div>` +
+          `<div><label>解像度: <select data-type="resolution" class="resolution-select border p-1 rounded w-26">` +
+          resList.map(res => { const sel = (`${m.resolutionWidth}x${m.resolutionHeight}` === res) ? 'selected' : ''; return `<option value="${res}" ${sel}>${res}</option>`; }).join('') +
+          `</select></label></div>` +
+          `<div class="flex space-x-4 mt-1"><div class="w-42 flex-shrink-0 truncate">総ピクセル数: ${(m.resolutionWidth * m.resolutionHeight).toLocaleString()}</div><div class="w-20 flex-shrink-0 truncate">PPI: ${(Math.hypot(m.resolutionWidth, m.resolutionHeight) / m.size).toFixed(2)}</div></div>` +
+          `</div><button class="remove-btn text-red-500 ml-4 mt-2">削除</button></div>`;
+      }).join('');
+      c.innerHTML = html;
+      c.querySelectorAll('.size-input').forEach(inp => inp.addEventListener('change', onSizeChange));
+      c.querySelectorAll('.ratio-select').forEach(sel => sel.addEventListener('change', onRatioChange));
+      c.querySelectorAll('.resolution-select').forEach(sel => sel.addEventListener('change', onResolutionChange));
+      c.querySelectorAll('.remove-btn').forEach(btn => btn.addEventListener('click', onRemove));
+    }
+    function onSizeChange(e) { const i = e.target.closest('.monitor-card').dataset.index; monitors[i].size = parseFloat(e.target.value) || 0; render(); }
+    function onRatioChange(e) { const i = e.target.closest('.monitor-card').dataset.index; monitors[i].ratio = e.target.value;[monitors[i].resolutionWidth, monitors[i].resolutionHeight] = resolutionOptions[e.target.value][0].split('x').map(Number); render(); }
+    function onResolutionChange(e) { const i = e.target.closest('.monitor-card').dataset.index;[monitors[i].resolutionWidth, monitors[i].resolutionHeight] = e.target.value.split('x').map(Number); render(); }
+    function onRemove(e) { const i = e.target.closest('.monitor-card').dataset.index; monitors.splice(i, 1); render(); }
+    function onAdd() {
+      let preset = defaultPresets.find(p => !monitors.some(m =>
+        m.size === p.size && m.ratio === p.ratio &&
+        m.resolutionWidth === p.resolutionWidth && m.resolutionHeight === p.resolutionHeight
+      ));
+      if (!preset) preset = defaultMonitor();
+      monitors.push({ ...preset });
+      render();
+    }
+    // 初期化ボタン押下時のハンドラ: 初期モニタリストに戻す
+    function onReset() {
+      if (!confirm("本当にモニタ設定を初期化しますか？現在の入力内容は失われます。")) return;
+      monitors = [
+        { size: 24, ratio: "16:9", resolutionWidth: 1920, resolutionHeight: 1080 },
+        { size: 34, ratio: "21:9", resolutionWidth: 3440, resolutionHeight: 1440 }
+      ];
+      render();
+    }
+    function renderVisualization() {
+      const c = document.getElementById('visualization');
+      // calculate display dims and pixel count
+      const items = monitors.map((m, idx) => {
+        const [rw, rh] = m.ratio.split(':').map(Number);
+        const dsize = m.size;
+        const win = dsize * rw / Math.hypot(rw, rh);
+        const hin = dsize * rh / Math.hypot(rw, rh);
+        const w = win * 2.54;
+        const h = hin * 2.54;
+        const pixel = m.resolutionWidth * m.resolutionHeight;
+        return { w, h, pixel, idx };
+      });
+      // sort by pixel descending: draw larger first, smaller on top
+      items.sort((a, b) => b.pixel - a.pixel);
+      // determine canvas size
+      const maxW = Math.max(...items.map(it => it.w));
+      const maxH = Math.max(...items.map(it => it.h));
+      const mgn = 20;
+      const scale = 800 / Math.max(maxW, maxH);
+      const sw = maxW * scale + mgn * 2;
+      const sh = maxH * scale + mgn * 2;
+      const cols = ['red', 'blue', 'green', 'orange', 'purple', 'teal'];
+      let svg = `<svg width="100%" height="${sh}" viewBox="0 0 ${sw} ${sh}" class="bg-white">`;
+      items.forEach(item => {
+        const w = item.w * scale;
+        const h = item.h * scale;
+        const x = mgn;
+        const y = sh - mgn - h;
+        const color = cols[item.idx % cols.length];
+        svg += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="none" stroke="${color}" stroke-width="2"/>`;
+        // 横幅ラベルを上部中央に配置
+        svg += `<text x="${x + w / 2}" y="${y - 5}" text-anchor="middle" font-size="12" fill="${color}">${(item.w).toFixed(1)} cm</text>`;
+        // 縦幅ラベルを右側中央に配置 (縦書き)
+        const tx = x + w + 5;
+        const ty = y + h / 2;
+        svg += `<text transform=\"rotate(90 ${tx} ${ty})\" x=\"${tx}\" y=\"${ty}\" text-anchor="middle" font-size="12" fill=\"${color}\">${(item.h).toFixed(1)} cm</text>`;
+      });
+      svg += `</svg>`;
+      c.innerHTML = svg;
+    }
+    function render() { renderMonitors(); renderVisualization(); updateQuery(); }
+    document.addEventListener('DOMContentLoaded', () => { parseQuery(); render(); initSortable(); });
+    document.getElementById('add-monitor').addEventListener('click', onAdd);
+    document.getElementById('reset-btn').addEventListener('click', onReset);
+  </script>
+</body>
+
+</html>
